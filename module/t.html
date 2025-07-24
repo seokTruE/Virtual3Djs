@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <canvas id="glCanvas" width="800" height="600"></canvas>
+
+  <script>
+    const canvas = document.getElementById('glCanvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if (!gl) {
+      alert('不支持 WebGL');
+      return;
+    }
+
+    // 1. 着色器代码
+    // 顶点着色器：处理粒子位置和大小
+    const vertexShaderSource = `
+      attribute vec2 a_position; // 粒子初始位置
+      attribute vec2 a_velocity; // 粒子速度
+      attribute float a_size;    // 粒子大小
+      attribute vec3 a_color;    // 粒子颜色
+      uniform float u_time;      // 时间（用于动画）
+      void main() {
+        // 计算当前位置（初始位置 + 速度 * 时间）
+        vec2 position = a_position + a_velocity * u_time;
+        // 限制粒子在画布内（超出边界反弹）
+        if (position.x < -1.0 || position.x > 1.0) a_velocity.x *= -1.0;
+        if (position.y < -1.0 || position.y > 1.0) a_velocity.y *= -1.0;
+        // 设置顶点位置
+        gl_Position = vec4(position, 0.0, 1.0);
+        // 设置点大小（WebGL 支持 gl_PointSize 定义点的像素大小）
+        gl_PointSize = a_size;
+      }
+    `;
+
+    // 片元着色器：设置粒子颜色（圆形粒子效果）
+    const fragmentShaderSource = `
+      precision mediump float;
+      uniform vec3 u_color;
+      void main() {
+        // 计算点中心到当前像素的距离（实现圆形粒子）
+        vec2 pointCoord = gl_PointCoord - vec2(0.5); // 坐标范围 [0,1] → [-0.5,0.5]
+        float distance = length(pointCoord);
+        if (distance > 0.5) discard; // 超出圆范围的像素不绘制
+        gl_FragColor = vec4(u_color, 1.0); // 粒子颜色
+      }
+    `;
+
+    // 2. 初始化着色器程序（复用之前的 createShader 函数）
+    function createShader(gl, type, source) { /* 同之前的实现 */ }
+    const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+    const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+    const program = gl.createProgram();
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+    gl.useProgram(program);
+
+    // 3. 生成粒子数据（1000个粒子）
+    const particleCount = 1000;
+    const positions = [];    // 初始位置（范围 [-1,1]）
+    const velocities = [];   // 速度（随机方向和大小）
+    const sizes = [];        // 大小（1-5像素）
+    const colors = [];       // 颜色（随机RGB）
+
+    for (let i = 0; i < particleCount; i++) {
+      // 随机位置
+      positions.push(Math.random() * 2 - 1); // x
+      positions.push(Math.random() * 2 - 1); // y
+      // 随机速度
+      velocities.push((Math.random() - 0.5) * 0.01); // vx
+      velocities.push((Math.random() - 0.5) * 0.01); // vy
+      // 随机大小
+      sizes.push(Math.random() * 4 + 1);
+      // 随机颜色
+      colors.push(Math.random()); // r
+      colors.push(Math.random()); // g
+      colors.push(Math.random()); // b
+    }
+
+    // 4. 将粒子数据传入 GPU（使用缓冲区）
+    function setupBuffer(data, attributeName, componentCount) {
+      const buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW);
+      const location = gl.getAttribLocation(program, attributeName);
+      gl.enableVertexAttribArray(location);
+      gl.vertexAttribPointer(location, componentCount, gl.FLOAT, false, 0, 0);
+    }
+
+    setupBuffer(positions, 'a_position', 2);    // 每个位置2个分量（x,y）
+    setupBuffer(velocities, 'a_velocity', 2);   // 每个速度2个分量（vx,vy）
+    setupBuffer(sizes, 'a_size', 1);            // 每个大小1个分量
+    setupBuffer(colors, 'a_color', 3);          // 每个颜色3个分量（r,g,b）
+
+    // 获取时间和颜色的 uniform 变量位置
+    const timeLocation = gl.getUniformLocation(program, 'u_time');
+    const colorLocation = gl.getUniformLocation(program, 'u_color');
+
+    // 5. 动画循环：每帧更新粒子位置
+    let time = 0;
+    function animate() {
+      time += 0.1;
+      // 设置时间变量（传递给顶点着色器）
+      gl.uniform1f(timeLocation, time);
+      // 清空画布
+      gl.clearColor(0.1, 0.1, 0.1, 1.0); // 深色背景
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      // 绘制所有粒子（以点的形式）
+      gl.drawArrays(gl.POINTS, 0, particleCount);
+      requestAnimationFrame(animate);
+    }
+
+    // 启动动画
+    animate();
+  </script>
+</body>
+</html>

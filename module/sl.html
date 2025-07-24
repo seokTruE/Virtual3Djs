@@ -1,0 +1,105 @@
+<canvas id="glCanvas"></canvas>
+<script>
+  const canvas = document.getElementById('glCanvas');
+  canvas.width = innerWidth;
+  canvas.height = innerHeight;
+  const gl = canvas.getContext('webgl2'); // 实例化渲染需要WebGL 2.0
+
+  // 1. 顶点数据（正方形的4个顶点，只传一次）
+  const vertices = new Float32Array([
+    -0.05,  0.05, // 左上
+    -0.05, -0.05, // 左下
+     0.05,  0.05, // 右上
+     0.05, -0.05  // 右下
+  ]);
+
+  // 2. 实例属性：每个实例的位置（x,y）和颜色（r,g,b）
+  const instanceCount = 100;
+  const instanceData = new Float32Array(instanceCount * 5); // 每个实例5个值（x,y,r,g,b）
+  for (let i = 0; i < instanceCount; i++) {
+    // 随机位置（范围：-0.9到0.9）
+    instanceData[i*5 + 0] = (Math.random() * 1.8) - 0.9; // x
+    instanceData[i*5 + 1] = (Math.random() * 1.8) - 0.9; // y
+    // 随机颜色
+    instanceData[i*5 + 2] = Math.random(); // r
+    instanceData[i*5 + 3] = Math.random(); // g
+    instanceData[i*5 + 4] = Math.random(); // b
+  }
+
+  // 3. 创建并绑定顶点缓冲区（正方形顶点）
+  const vertexBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+  // 4. 创建并绑定实例属性缓冲区
+  const instanceBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, instanceData, gl.STATIC_DRAW);
+
+  // 5. 顶点着色器（处理实例化逻辑）
+  const vsSource = `#version 300 es
+    in vec2 aPosition;       // 正方形顶点位置（共享）
+    in vec2 aInstanceOffset; // 实例偏移量（每个实例不同）
+    in vec3 aInstanceColor;  // 实例颜色（每个实例不同）
+    
+    out vec3 vColor;
+
+    void main() {
+      // 计算最终位置：顶点位置 + 实例偏移量
+      gl_Position = vec4(aPosition + aInstanceOffset, 0.0, 1.0);
+      vColor = aInstanceColor;
+    }
+  `;
+
+  // 6. 片段着色器（输出颜色）
+  const fsSource = `#version 300 es
+    precision highp float;
+    in vec3 vColor;
+    out vec4 fragColor;
+
+    void main() {
+      fragColor = vec4(vColor, 1.0);
+    }
+  `;
+
+  // 7. 编译并链接着色器程序
+  function createShader(gl, type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    return shader;
+  }
+  const vs = createShader(gl, gl.VERTEX_SHADER, vsSource);
+  const fs = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
+  const program = gl.createProgram();
+  gl.attachShader(program, vs);
+  gl.attachShader(program, fs);
+  gl.linkProgram(program);
+  gl.useProgram(program);
+
+  // 8. 配置顶点属性（共享顶点数据）
+  const aPositionLoc = gl.getAttribLocation(program, 'aPosition');
+  gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+  gl.enableVertexAttribArray(aPositionLoc);
+  gl.vertexAttribPointer(aPositionLoc, 2, gl.FLOAT, false, 0, 0);
+  // 非实例属性：默认每个顶点取一次数据
+
+  // 9. 配置实例属性（每个实例取一次数据）
+  const aInstanceOffsetLoc = gl.getAttribLocation(program, 'aInstanceOffset');
+  const aInstanceColorLoc = gl.getAttribLocation(program, 'aInstanceColor');
+  gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer);
+  
+  // 偏移量属性：每个实例2个float，步长5*4字节（每个实例总字节数）
+  gl.enableVertexAttribArray(aInstanceOffsetLoc);
+  gl.vertexAttribPointer(aInstanceOffsetLoc, 2, gl.FLOAT, false, 5*4, 0);
+  gl.vertexAttribDivisor(aInstanceOffsetLoc, 1); // 关键：每1个实例更新一次数据
+
+  // 颜色属性：每个实例3个float，从第2个float开始（偏移2*4字节）
+  gl.enableVertexAttribArray(aInstanceColorLoc);
+  gl.vertexAttribPointer(aInstanceColorLoc, 3, gl.FLOAT, false, 5*4, 2*4);
+  gl.vertexAttribDivisor(aInstanceColorLoc, 1); // 每1个实例更新一次数据
+
+  // 10. 实例化绘制：一次调用渲染100个正方形
+  gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, instanceCount);
+  // 说明：用TRIANGLE_STRIP绘制4个顶点（形成正方形），重复渲染100次（每个实例一次）
+</script>

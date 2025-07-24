@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>WebGL 实例化渲染（多矩阵 + 多纹理）</title>
+  <style>
+    canvas { border: 1px solid #000; }
+  </style>
+</head>
+<body>
+<canvas id="glCanvas" width="500" height="500"></canvas>
+
+<script type="module">
+// 1. 初始化 WebGL 上下文
+const canvas = document.getElementById('glCanvas');
+const gl = canvas.getContext('webgl2');
+if (!gl) { alert('你的浏览器不支持 WebGL2'); }
+
+// 2. 定义顶点数据（一个正方形，两个三角形组成）
+const vertexData = new Float32Array([
+  // 顶点坐标（x, y） + 纹理坐标（u, v）
+  -0.5, -0.5,  0.0, 0.0,
+   0.5, -0.5,  1.0, 0.0,
+   0.5,  0.5,  1.0, 1.0,
+  -0.5,  0.5,  0.0, 1.0,
+]);
+
+// 3. 定义实例化数据（每个实例的模型矩阵 + 纹理索引）
+const instanceCount = 3; // 绘制 3 个实例
+// 模型矩阵：平移变换（x 分别为 -0.5, 0, 0.5），这里简化为 2D 平移（实际是 4x4 矩阵的一部分）
+const modelMatrices = new Float32Array([
+  // 实例 1：x 平移 -0.5
+  1, 0, 0, 0,
+  0, 1, 0, 0,
+  0, 0, 1, 0,
+  -0.5, 0, 0, 1,
+  
+  // 实例 2：x 平移 0
+  1, 0, 0, 0,
+  0, 1, 0, 0,
+  0, 0, 1, 0,
+  0, 0, 0, 1,
+  
+  // 实例 3：x 平移 0.5
+  1, 0, 0, 0,
+  0, 1, 0, 0,
+  0, 0, 1, 0,
+  0.5, 0, 1, 1,
+]);
+// 每个实例用的纹理索引（0,1,2 对应 3 张纹理）
+const textureIndices = new Float32Array([0, 1, 2]);
+
+// 4. 创建纹理（3 张不同颜色的“纹理”，实际用纯色模拟）
+const textures = [];
+const textureColors = [[1,0,0,1], [0,1,0,1], [0,0,1,1]]; // 红、绿、蓝
+for (let i = 0; i < 3; i++) {
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  // 用纯色填充纹理（实际项目会加载图片，这里简化）
+  const data = new Uint8Array(textureColors[i].map(c => c * 255));
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  textures.push(tex);
+}
+
+// 5. 编译着色器
+const vsSource = `#version 300 es
+layout (location = 0) in vec2 aPos;   // 顶点坐标
+layout (location = 1) in vec2 aTexCoord; // 纹理坐标
+// 实例化属性：模型矩阵（4 个 vec4） + 纹理索引
+layout (location = 2) in vec4 matRow0;
+layout (location = 3) in vec4 matRow1;
+layout (location = 4) in vec4 matRow2;
+layout (location = 5) in vec4 matRow3;
+layout (location = 6) in float texIndex;
+
+uniform mat4 u_ViewProj; // 视图投影矩阵（这里简化为单位矩阵）
+out vec2 v_TexCoord;
+flat out float v_TexIndex; // flat：纹理索引不插值
+
+void main() {
+  // 构建模型矩阵
+  mat4 modelMat = mat4(matRow0, matRow1, matRow2, matRow3);
+  gl_Position = u_ViewProj * modelMat * vec4(aPos, 0.0, 1.0);
+  v_TexCoord = aTexCoord;
+  v_TexIndex = texIndex;
+}
+`;
+
+const fsSource = `#version 300 es
+precision mediump float;
+in vec2 v_TexCoord;
+flat in float v_TexIndex;
+uniform sampler2D u_Textures[3]; // 纹理数组（注意：WebGL 对数组长度有限制，需提前声明）
+out vec4 FragColor;
+
+void main() {
+  // 根据纹理索引选择采样的纹理
+  if (v_TexIndex == 0.0) FragColor = texture(u_Textures[0], v_TexCoord);
+  if (v_TexIndex == 1.0) FragColor = texture(u_Textures[1], v_TexCoord);
+  if (v_TexIndex == 2.0) FragColor = texture(u_Textures[2], v_TexCoord);
+}
+`;
+
+function createShader(type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    console.error('着色器编译失败：', gl.getShaderInfoLog(shader));
+    gl.deleteShader(shader);
+    return null;
+  }
+  return shader;
+}
+
+const vs = createShader(gl.VERTEX_SHADER, vsSource);
+const fs = createShader(gl.FRAGMENT_SHADER, fsSource);
+const program = gl.createProgram();
+gl.attachShader(program, vs);
+gl.attachShader(program, fs);
+gl.linkProgram(program);
+if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+  console.error('程序链接失败：', gl.getProgramInfoLog(program));
+  gl.deleteProgram(program);
+  // return;
+}
+gl.useProgram(program);
+
+// 6. 设置顶点缓冲（VAO/VBO）
+const vao = gl.createVertexArray();
+gl.bindVertexArray(vao);
+
+// 顶点数据 VBO
+const vertexBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.STATIC_DRAW);
+// 顶点坐标（aPos）
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 4 * 4, 0); //  stride=4*4（每个顶点 4 个 float）
+// 纹理坐标（aTexCoord）
+gl.enableVertexAttribArray(1);
+gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 4 * 4, 2 * 4); // 偏移 2*4 字节
+
+// 实例化数据 VBO（模型矩阵 + 纹理索引）
+const instanceBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer);
+// 合并模型矩阵和纹理索引到同一个缓冲
+const instanceData = new Float32Array([
+  ...modelMatrices, 
+  ...textureIndices
+]);
+gl.bufferData(gl.ARRAY_BUFFER, instanceData, gl.STATIC_DRAW);
+
+// 模型矩阵的 4 行（每个行是 vec4，占 4 个 float）
+const matAttribs = [2, 3, 4, 5];
+matAttribs.forEach((loc, idx) => {
+  gl.enableVertexAttribArray(loc);
+  // 每个属性是 per-instance（步长为 instanceData 的总 stride，这里每个实例占 4*4 + 1 = 17 个 float？不，实际是：
+  // 模型矩阵每行 4 个 float，共 4 行（16 个 float） + 纹理索引 1 个 float → 每个实例占 17 个 float？
+  // 但更简单的方式是：每个实例的属性间隔是 instanceData 的字节长度 / instanceCount
+  const stride = instanceData.BYTES_PER_ELEMENT * (16 + 1); // 16（矩阵） +1（纹理索引）
+  const offset = idx * 4 * instanceData.BYTES_PER_ELEMENT; // 每行偏移 4 个 float
+  gl.vertexAttribPointer(loc, 4, gl.FLOAT, false, 4, offset); // stride
+  gl.vertexAttribDivisor(loc, 1); // 每个实例更新一次
+});
+
+// 纹理索引（per-instance）
+gl.enableVertexAttribArray(6);
+gl.vertexAttribPointer(6, 1, gl.FLOAT, false, 4, 16 * instanceData.BYTES_PER_ELEMENT);
+gl.vertexAttribDivisor(6, 1);
+
+// 7. 设置 uniform（视图投影矩阵，这里简化为单位矩阵）
+const uViewProjLoc = gl.getUniformLocation(program, 'u_ViewProj');
+const identityMat = new Float32Array([
+  1,0,0,0,
+  0,1,0,0,
+  0,0,1,0,
+  0,0,0,1
+]);
+gl.uniformMatrix4fv(uViewProjLoc, false, identityMat);
+
+// 8. 绑定纹理到采样器
+for (let i = 0; i < 3; i++) {
+  gl.activeTexture(gl.TEXTURE0 + i);
+  gl.bindTexture(gl.TEXTURE_2D, textures[i]);
+  gl.uniform1i(gl.getUniformLocation(program, `u_Textures[${i}]`), i);
+}
+
+// 9. 绘制！
+gl.clearColor(0.2, 0.2, 0.2, 1.0);
+gl.clear(gl.COLOR_BUFFER_BIT);
+gl.bindVertexArray(vao);
+// 用 drawArraysInstanced：因为顶点数据是 TRIANGLE_FAN（或 TRIANGLES，看索引）
+// 这里顶点数据是 4 个顶点，画两个三角形（索引 0,1,2, 0,2,3），但示例简化为用 drawArrays
+gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, instanceCount);
+</script>
+</body>
+</html>

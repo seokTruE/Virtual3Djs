@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script type="text/javascript" src="../vue/vue.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon " type="images/x-icon" href="./assets/images/1/hd.jpg">
+    <title>Virtual3D.module</title>
+</head>
+<style>
+canvas {
+    border: 0px solid #0000ff;
+    transform-origin: top left;
+    z-index: 1;
+}
+</style>
+<body>
+    <script type="module">
+        let root_res = './res';
+        import * as Virtual3D from "./Virtual3D.module.js"
+        let engine = new Virtual3D.WebGLEngine();
+        engine.mountElement = document.getElementById('root');
+        // engine.Detector();
+        let camera = new Virtual3D.PerspectiveCamera(); // PerspectiveCamera OrthographicCamera
+        camera.position.set( 0, 0, 10 );
+        camera.lookAt.set( 0, 0, 0 );
+        engine.bindCamera( camera );
+
+        let scene = new Virtual3D.Scene();
+        let group = new Virtual3D.Group();
+        group.position.set(0, 20,-50);
+        // group.Euler.y = 90;
+
+        let light = new  Virtual3D.DirectonalLight();
+        light.shadowResolution = 128*16;
+        light.Material.color.set( 1.0, 1.0, 1.0, 1 );
+        // light.position.set( 3, 4, 5 );
+        // light.lookAt.set( 0, 0, 0 );
+
+        let plane = new Virtual3D.Plane();
+        plane.setShape( 100, 100, -1 );
+        // plane.position.z = -100;
+        // plane.Euler.x = 90;
+        plane.Material = new Virtual3D.BlinnPongMaterial();
+
+        let plane1 = new Virtual3D.Plane();
+        plane1.setShape( 100, 100, -1 );
+        plane1.position.z = -50;
+        plane1.Euler.x = 90;
+        plane1.Material = new Virtual3D.BasicMaterial();
+        // plane1.Material.DiffuseMapIndex = 15;
+
+        let sphere = new Virtual3D.Sphere();
+        sphere.message.needCoatShadow = true;
+        sphere.setShape( 2/2, 64, 32 );
+        sphere.Material = new Virtual3D.BlinnPongMaterial();
+        sphere.Material.color.set( 0.8, 0.8, 1, 1 );
+
+        let sphere1 = new Virtual3D.Sphere();
+        sphere1.setShape( 10, 64, 32 )
+        sphere1.position.set( 0, 0, 0 );
+        sphere1.Material = new Virtual3D.BasicMaterial();
+        sphere1.Material.DiffuseMap = root_res + '/texture/sphere/earth_atmos_2048.jpg';
+
+        let sphere2 = new Virtual3D.Sphere();
+        sphere2.setShape( 3, 64, 32 )
+        sphere2.position.set( 30, 0, 0 );
+        sphere2.Material = new Virtual3D.BasicMaterial();
+        sphere2.Material.DiffuseMap = root_res + '/texture/sphere/moon_1024.jpg'; 
+
+        let cube = new Virtual3D.Cube();
+        cube.message.needCoatShadow = true;
+        cube.position.set( 2, 0, 0 );
+        cube.scale.set( 1, 1, 1 )
+        cube.Material = new Virtual3D.BlinnPongMaterial();
+        cube.Material.color.set( 0, 1, 1, 1 );
+        // cube.setPixelType( 'LINES' );
+
+        let cube1 = new Virtual3D.Cube();
+        cube1.message.needCoatShadow = true;
+        cube1.position.set( 4, 0, 0 )
+        cube1.Material = new Virtual3D.BlinnPongMaterial();
+        cube1.Material.color.set( 1, 1, 1, 1 );
+        // cube1.Material.DiffuseMap = './assets/images/1/hd.jpg';
+
+
+        
+        group.children = [
+            sphere1, sphere2
+        ]
+
+        scene.children = [
+            light, 
+            plane,// plane1,
+            cube1,cube,sphere, group ];
+
+        let controller = new Virtual3D.CameraController( camera, engine.DOMElement );
+
+
+        let t = 0;
+        function animate() {
+            controller.updata();
+            
+            // cube.Euler.z  = t;
+            // cube.Euler.x  = t;
+            // group.position.x  = t/100;
+            // scene.Euler.y  = t;
+
+            engine.render( scene );
+            requestAnimationFrame( animate );
+            t += 1*0.5;
+        }
+
+        let drawType = 0
+        let ti = 500;
+        if ( drawType == 0) {
+            animate();
+        } else {
+            setInterval( () => {
+                controller.updata();
+                engine.render( scene );
+            }, 500);
+        }
+        // WebAssembly
+    </script>
+</body>
+</html>
